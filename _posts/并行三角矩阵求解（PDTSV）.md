@@ -1,0 +1,49 @@
+# 并行三角矩阵求解（PDTRSV）
+
+### 背景
+
+​		我在实现并行GMRES算法的过程中，需要用到并行解上下三角矩阵的函数。由于HPL中只有并行解上三角矩阵的函数，所以需要我自己编写并行下三角矩阵的函数。本博客我以下三角矩阵为例，介绍广泛使用的并行求解三角矩阵的算法。
+
+### 三角矩阵的Blocks解法原理
+
+​		首先，我查阅了经典的*Matrix Computations*著作中，有关三角矩阵的blocked substitution算法。所谓blocked算法，就是指将矩阵划分为许多blocks，然后将矩阵整体的算法表示为blocks之间的计算。*Matrix Computations*中有关下三角矩阵L求解的blocked算法如下：
+
+​		我们想要求出向量$X$满足$LX=B$，其中$L$为已知下三角矩阵（Lower Triangular Matrix），$B$为已知的右手参数向量（Right-hand Side）。将矩阵和向量划分为blocks的形式：
+$$
+\left[\begin{matrix} L_{11} & 0\\L_{21} & L_{22} \end{matrix}\right] \left[\begin{matrix} X_1 \\ X_2 \end{matrix}\right] = \left[\begin{matrix} B_1 \\ B_2 \end{matrix}\right]
+$$
+​		其中$L_{11}$和$L_{22}$为小一点的下三角矩阵。首先可以求解$L_{11}X_1=B_1$得到$X_1$。上式的左边可以展开得到：
+$$
+\left[\begin{matrix}L_{11}X_1\\L_{21}X_1 + L_{22}X_2\end{matrix}\right] =\left[\begin{matrix} B_1 \\ B_2 \end{matrix}\right]
+$$
+​		所以只需要将$B_2$减去$L_{21}X_1$就能够去掉$L_{11}$所占的行的列，从而将问题归为更小的$L_{22}X_2=\widetilde{B_2}$。其中，
+$$
+\widetilde{B_2} = B_2 - L_{21}X_2
+$$
+
+### 三角矩阵的Blocks解法过程
+
+​		有了上面的理论基础，下面我们来设计一种求解blocked三角矩阵的直观算法。
+
+​		下三角矩阵$L$被划分为许多小的blocks块，简便起见，设所有的小块都是方块（有非方块blocks的情况也可以在此基础上修改实现）。对角线上的blocks将也是下三角矩阵，对角线上方的blocks都是0，对角线下方的blocks可以是任意方阵。
+
+​		**对角求解**。首先求解第一行中唯一的一块非零block $L_{11}X_1=B_1$，得到$X_1$的值。
+
+![p1](C:\Users\15876\Desktop\blogs\my_blog\schuangs.github.io\assets\image\blog1\p1.png)
+
+​		**更新B**。然后，将$X_1$的结果传给$L_{11}$同一列的$L_{21}$、$L_{31}$、...、$L_{N1}$，计算$B_i -= L_{i1}X_1$。
+
+![p2](C:\Users\15876\Desktop\blogs\my_blog\schuangs.github.io\assets\image\blog1\p2.png)
+
+​		**迭代**。然后就可以把$L_{11}$所在的行和列全部丢掉。迭代求解更小的问题。
+
+### 分布式并行算法
+
+​		这里所指的并行，是指$L$矩阵本身是分布式存储于多个进程之中，采用的是分布式并行而不是共享内存式并行。即将介绍的并行算法也是基于上面给出的blocked算法设计的。不同的是，该并行算法涉及到更多的进程之间的通信顺序设计。
+
+
+
+### 参考文献
+
+1. *Matrix Computations*, Gene H. Golub, Charles F. Van Loan, 4th edition。有关矩阵计算的神作。
+2. *A High Performance Two Dimensional Scalable Parallel Algorithm for Solving Sparse Triangular Systems* ， Mahesh V. Joshi, Anshul Gupta, etc.  1997。提出了广泛使用的并行三角矩阵算法。
